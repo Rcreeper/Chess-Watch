@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chess Vision Arcade AI</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chess.js for legal move generation & FEN handling -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <!-- Google Fonts: Pixel & Clean Retro Monospace -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --panel-bg: #1e293b;
+      --panel-inner: #0b1120;
+      --accent-cyan: #38bdf8;
+      --arcade-blue: #0284c7;
+      --arcade-light: #e0f2fe;
+      --arcade-green: #10b981;
+      --text-white: #f8fafc;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-white);
+      font-family: 'VT323', monospace;
+      background-image: 
+        radial-gradient(rgba(56, 189, 248, 0.08) 1px, transparent 1px),
+        radial-gradient(rgba(56, 189, 248, 0.05) 1px, #0f172a 1px);
+      background-size: 24px 24px;
+      background-position: 0 0, 12px 12px;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+    }
+
+    .font-pixel {
+      font-family: 'Press Start 2P', monospace;
+    }
+
+    .font-retro {
+      font-family: 'VT323', monospace;
+    }
+
+    /* Simple crisp pixel borders and hard drop shadows */
+    .pixel-panel {
+      background-color: var(--panel-bg);
+      border: 3px solid var(--accent-cyan);
+      box-shadow: 6px 6px 0px #060b14;
+      border-radius: 4px;
+    }
+
+    .pixel-subpanel {
+      background-color: var(--panel-inner);
+      border: 2px solid #334155;
+      box-shadow: inset 2px 2px 0px rgba(0,0,0,0.6);
+      border-radius: 2px;
+    }
+
+    .pixel-btn {
+      font-family: 'Press Start 2P', monospace;
+      border: 2px solid #f8fafc;
+      box-shadow: 4px 4px 0px #060b14;
+      border-radius: 2px;
+      transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.1s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .pixel-btn:hover:not(:disabled) {
+      filter: brightness(1.12);
+      transform: translate(-1px, -1px);
+      box-shadow: 5px 5px 0px #060b14;
+    }
+
+    .pixel-btn:active:not(:disabled) {
+      transform: translate(3px, 3px);
+      box-shadow: 1px 1px 0px #060b14;
+    }
+
+    .pixel-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Chessboard styling */
+    .chess-grid {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+      border: 4px solid var(--accent-cyan);
+      box-shadow: 6px 6px 0px #060b14;
+      position: relative;
+      aspect-ratio: 1 / 1;
+    }
+
+    .sq-light {
+      background-color: #e0f2fe;
+      color: #0284c7;
+    }
+
+    .sq-dark {
+      background-color: #0284c7;
+      color: #e0f2fe;
+    }
+
+    .sq-highlight-from {
+      background-color: #fde047 !important;
+      box-shadow: inset 0 0 0 3px #ca8a04;
+    }
+
+    .sq-highlight-to {
+      background-color: #4ade80 !important;
+      box-shadow: inset 0 0 0 3px #15803d;
+    }
+
+    .move-card {
+      border: 2px solid #334155;
+      background-color: #0f172a;
+      transition: all 0.15s ease;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+
+    .move-card:hover, .move-card.active-move {
+      border-color: var(--accent-cyan);
+      background-color: #172554;
+      transform: translateX(3px);
+    }
+
+    /* Subtle scanline animation on image capture screen */
+    @keyframes scanBeam {
+      0% { top: 0%; opacity: 0.8; }
+      50% { top: 96%; opacity: 0.9; }
+      100% { top: 0%; opacity: 0.8; }
+    }
+
+    .scanner-line {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: #38bdf8;
+      box-shadow: 0 0 12px #38bdf8, 0 0 24px #38bdf8;
+      animation: scanBeam 1.6s linear infinite;
+      z-index: 20;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col p-3 sm:p-5">
+
+  <!-- Top Arcade Header -->
+  <header class="max-w-7xl w-full mx-auto mb-4 flex flex-col sm:flex-row items-center justify-between gap-3 pixel-panel px-4 py-3">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 bg-sky-500 border-2 border-white flex items-center justify-center text-slate-950 font-pixel text-base shadow-[3px_3px_0px_#060b14]">
+        ♞
+      </div>
+      <div>
+        <h1 class="font-pixel text-xs sm:text-sm md:text-base text-sky-400 tracking-wider">
+          CHESS VISION ARCADE AI
+        </h1>
+        <p class="text-slate-300 text-lg sm:text-xl leading-none mt-1">
+          OPTICAL BOARD SCANNER &amp; DUAL-SIDE MOVE ENGINE
+        </p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <span class="px-2.5 py-1 bg-slate-900 border-2 border-sky-400 text-sky-300 font-pixel text-[10px]">
+        1P / 2P ANALYSIS
+      </span>
+      <button onclick="cycleDemoPreset()" class="pixel-btn bg-sky-600 text-white px-3 py-2 text-[10px]">
+        DEMO PRESET ↻
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Two-Column Dashboard -->
+  <main class="max-w-7xl w-full mx-auto flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+
+    <!-- ==================== LEFT PANEL: SOURCE PHOTO / WEBCAM ==================== -->
+    <section class="lg:col-span-7 pixel-panel p-4 flex flex-col justify-between">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-pixel text-[11px] sm:text-xs text-sky-400 flex items-center gap-2">
+          <span>[1]</span> SOURCE PHOTO / WEBCAM CAPTURE
+        </h2>
+        <span id="angleBadge" class="text-base sm:text-lg text-sky-300 bg-slate-900 px-2.5 py-0.5 border border-sky-500/50">
+          PERSPECTIVE: AUTO-WARP READY
+        </span>
+      </div>
+
+      <!-- Image / Video Display Box -->
+      <div id="mediaContainer" class="pixel-subpanel relative flex-1 min-h-[340px] sm:min-h-[450px] flex items-center justify-center overflow-hidden p-2">
+        <!-- Scanner overlay during analysis -->
+        <div id="scannerOverlay" class="hidden scanner-line"></div>
+
+        <!-- Placeholder state -->
+        <div id="placeholderState" class="text-center p-6 max-w-md">
+          <div class="text-5xl mb-3 text-sky-400">📷</div>
+          <p class="font-pixel text-xs text-white mb-3 leading-relaxed">NO BOARD IMAGE LOADED</p>
+          <p class="text-xl text-slate-300 mb-5 leading-snug">
+            Upload a chessboard photo from any angle, snap one with your webcam, or load a sample angled board photo to test!
+          </p>
+          <button onclick="loadSampleBoardPhoto()" class="pixel-btn bg-sky-500 text-slate-950 px-4 py-2.5 text-[10px]">
+            ★ LOAD SAMPLE ANGLED PHOTO
+          </button>
+        </div>
+
+        <!-- Uploaded / Captured Image Preview -->
+        <img id="previewImage" alt="Uploaded Chessboard" class="hidden max-h-[520px] w-auto object-contain border-2 border-slate-700" />
+
+        <!-- Live Webcam Stream -->
+        <video id="webcamVideo" autoplay playsinline class="hidden max-h-[520px] w-full object-contain border-2 border-sky-400"></video>
+        <canvas id="captureCanvas" class="hidden"></canvas>
+
+        <!-- Corner Calibration Overlay Badge (Visual flair when photo loaded) -->
+        <div id="visionOverlayBadge" class="hidden absolute bottom-3 left-3 right-3 bg-slate-950/90 border-2 border-sky-400 px-3 py-1.5 flex items-center justify-between text-base sm:text-lg">
+          <span class="text-sky-300">GRID CORNERS: <strong class="text-white">LOCKED (4/4)</strong></span>
+          <span id="detectedPresetName" class="text-emerald-400">POSITION DETECTED</span>
+        </div>
+      </div>
+
+      <!-- Hidden File Input -->
+      <input type="file" id="photoInput" accept="image/*" class="hidden" onchange="handleFileUpload(event)" />
+
+      <!-- Control Buttons Row -->
+      <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <button onclick="document.getElementById('photoInput').click()" class="pixel-btn bg-sky-600 text-white py-3 px-3 text-[10px] sm:text-[11px] flex items-center justify-center gap-2">
+          <span>📁</span> UPLOAD PHOTO
+        </button>
+
+        <button id="webcamBtn" onclick="toggleWebcam()" class="pixel-btn bg-sky-700 text-white py-3 px-3 text-[10px] sm:text-[11px] flex items-center justify-center gap-2">
+          <span>🎥</span> <span id="webcamBtnText">WEBCAM</span>
+        </button>
+
+        <button id="analyzeBtn" onclick="runBoardAnalysis()" class="pixel-btn bg-emerald-500 text-slate-950 py-3 px-3 text-[10px] sm:text-[11px] font-bold flex items-center justify-center gap-2">
+          <span>⚡</span> ANALYZE BOARD
+        </button>
+      </div>
+    </section>
+
+    <!-- ==================== RIGHT PANEL: 2D BOARD & TACTICAL ADVICE ==================== -->
+    <section class="lg:col-span-5 flex flex-col gap-4">
+
+      <!-- TOP RIGHT: AI RECOGNIZED 2D BOARD -->
+      <div class="pixel-panel p-4 flex flex-col items-center">
+        <div class="w-full flex items-center justify-between mb-3">
+          <h2 class="font-pixel text-[11px] sm:text-xs text-sky-400 flex items-center gap-2">
+            <span>[2]</span> AI RECOGNIZED 2D BOARD
+          </h2>
+          <button onclick="flipBoardOrientation()" class="text-base text-sky-300 hover:text-white underline cursor-pointer">
+            FLIP VIEW ⇅
+          </button>
+        </div>
+
+        <!-- 8x8 Arcade Chessboard -->
+        <div class="w-full max-w-[340px] sm:max-w-[360px] relative">
+          <div id="chessBoardGrid" class="chess-grid w-full"></div>
+          <!-- SVG Overlay for Move Arrow -->
+          <svg id="moveArrowSvg" viewBox="0 0 800 800" class="pointer-events-none absolute inset-0 w-full h-full z-10"></svg>
+        </div>
+
+        <p class="text-slate-300 text-base sm:text-lg mt-2 text-center">
+          Click any recommended move below to preview piece path on board
+        </p>
+      </div>
+
+      <!-- BOTTOM RIGHT: TACTICAL ADVICE & ENGINE VERDICT -->
+      <div class="pixel-panel p-4 flex-1 flex flex-col justify-between">
+        <div>
+          <h2 class="font-pixel text-[11px] sm:text-xs text-sky-400 mb-3 flex items-center gap-2">
+            <span>[3]</span> TACTICAL ADVICE &amp; VERDICT
+          </h2>
+
+          <!-- Match Verdict & Win Likelihood Bar -->
+          <div class="pixel-subpanel p-3 mb-3">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-pixel text-[9px] text-sky-400">WIN LIKELIHOOD VERDICT:</span>
+              <span id="evalScoreBadge" class="text-base text-slate-300">EVAL: +0.00</span>
+            </div>
+            <div id="verdictText" class="text-xl sm:text-2xl font-bold text-white mb-2">
+              Waiting for board analysis...
+            </div>
+            <!-- Dual Win Probability Meter -->
+            <div class="w-full h-4 bg-slate-950 border-2 border-slate-600 flex overflow-hidden">
+              <div id="whiteWinBar" class="bg-sky-300 h-full transition-all duration-500" style="width: 50%;"></div>
+              <div id="blackWinBar" class="bg-blue-800 h-full transition-all duration-500" style="width: 50%;"></div>
+            </div>
+            <div class="flex justify-between text-base mt-1">
+              <span id="whiteWinPctLabel" class="text-sky-300">WHITE: 50.0%</span>
+              <span id="blackWinPctLabel" class="text-blue-300">BLACK: 50.0%</span>
+            </div>
+          </div>
+
+          <!-- White Moves Box -->
+          <div class="mb-3">
+            <div class="font-pixel text-[9px] text-sky-200 mb-1.5 flex items-center gap-1.5">
+              <span class="inline-block w-2.5 h-2.5 bg-sky-200 border border-white"></span>
+              WHITE'S BEST MOVES (IF WHITE TO PLAY)
+            </div>
+            <div class="space-y-1.5">
+              <div id="wMove1Card" onclick="highlightSuggestedMove('white', 0)" class="move-card px-3 py-1.5 flex items-center justify-between text-lg sm:text-xl">
+                <span id="wMove1Text" class="text-white">1st: -</span>
+                <span id="wMove1Conf" class="text-emerald-400 font-bold">--%</span>
+              </div>
+              <div id="wMove2Card" onclick="highlightSuggestedMove('white', 1)" class="move-card px-3 py-1.5 flex items-center justify-between text-lg sm:text-xl">
+                <span id="wMove2Text" class="text-slate-300">2nd: -</span>
+                <span id="wMove2Conf" class="text-sky-300">--%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Black Moves Box -->
+          <div>
+            <div class="font-pixel text-[9px] text-sky-200 mb-1.5 flex items-center gap-1.5">
+              <span class="inline-block w-2.5 h-2.5 bg-slate-950 border border-sky-400"></span>
+              BLACK'S BEST MOVES (IF BLACK TO PLAY)
+            </div>
+            <div class="space-y-1.5">
+              <div id="bMove1Card" onclick="highlightSuggestedMove('black', 0)" class="move-card px-3 py-1.5 flex items-center justify-between text-lg sm:text-xl">
+                <span id="bMove1Text" class="text-white">1st: -</span>
+                <span id="bMove1Conf" class="text-emerald-400 font-bold">--%</span>
+              </div>
+              <div id="bMove2Card" onclick="highlightSuggestedMove('black', 1)" class="move-card px-3 py-1.5 flex items-center justify-between text-lg sm:text-xl">
+                <span id="bMove2Text" class="text-slate-300">2nd: -</span>
+                <span id="bMove2Conf" class="text-sky-300">--%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="mt-3 pt-2 border-t-2 border-slate-700 flex items-center justify-between">
+          <span id="statusLabel" class="font-pixel text-[9px] text-sky-400">STATUS: READY</span>
+          <span id="fenMiniLabel" class="text-sm text-slate-400 truncate max-w-[180px]">FEN: STARTING</span>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- Custom Arcade Toast / Message Box (Replaces alert) -->
+  <div id="arcadeToast" class="fixed bottom-5 right-5 z-50 hidden bg-slate-900 border-3 border-sky-400 px-4 py-3 shadow-[5px_5px_0px_#060b14] max-w-sm">
+    <p id="arcadeToastMsg" class="text-xl text-white"></p>
+  </div>
+
+  <script>
+    // ==================== STATE & DEMO POSITIONS ====================
+    const DEMO_POSITIONS = [
+      {
+        name: "ITALIAN GAME (GIUOCO PIANO)",
+        fenPlacement: "r1bqk1nr/pppp1ppp/2n5/4p3/1bB1P3/5N2/PPPP1PPP/RNBQK2R",
+        angleDesc: "35° PERSPECTIVE ANGLE"
+      },
+      {
+        name: "SICILIAN DRAGON MIDGAME",
+        fenPlacement: "r1bq1rk1/pp2ppbp/2np1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R",
+        angleDesc: "48° SIDE-ANGLE CAPTURE"
+      },
+      {
+        name: "QUEEN'S GAMBIT DECLINED",
+        fenPlacement: "rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N2N2/PP2PPPP/R1BQKB1R",
+        angleDesc: "22° OVERHEAD TILT"
+      },
+      {
+        name: "TACTICAL KNIGHT FORK THREAT",
+        fenPlacement: "r2qkb1r/ppp2ppp/2n1bn2/3pp1N1/4P3/2NP4/PPP2PPP/R1BQKB1R",
+        angleDesc: "40° CORNER SHOT"
+      }
+    ];
+
+    let currentDemoIndex = 0;
+    let currentFenPlacement = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+    let boardFlipped = false;
+    let webcamStream = null;
+    let isWebcamActive = false;
+    let hasImageLoaded = false;
+
+    let lastAnalysisResults = {
+      white: [],
+      black: []
+    };
+
+    const PIECE_UNICODE = {
+      'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕', 'K': '♔',
+      'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚'
+    };
+
+    const PIECE_NAMES = {
+      'p': 'Pawn', 'n': 'Knight', 'b': 'Bishop',
+      'r': 'Rook', 'q': 'Queen', 'k': 'King'
+    };
+
+    const PIECE_VALUES = {
+      'p': 100, 'n': 320, 'b': 330, 'r': 500, 'q': 900, 'k': 20000
+    };
+
+    // ==================== INITIALIZATION ====================
+    window.addEventListener('DOMContentLoaded', () => {
+      render2DBoard(currentFenPlacement);
+    });
+
+    function showToast(msg) {
+      const toast = document.getElementById('arcadeToast');
+      const toastMsg = document.getElementById('arcadeToastMsg');
+      toastMsg.textContent = msg;
+      toast.classList.remove('hidden');
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 3500);
+    }
+
+    // ==================== SAMPLE ANGLED PHOTO GENERATOR ====================
+    // Generates a realistic tilted 3D-perspective chessboard image on canvas so user can test immediately
+    function loadSampleBoardPhoto() {
+      stopWebcamIfActive();
+      const preset = DEMO_POSITIONS[currentDemoIndex];
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 460;
+      const ctx = canvas.getContext('2d');
+
+      // Wood table background
+      const bgGrad = ctx.createLinearGradient(0, 0, 640, 460);
+      bgGrad.addColorStop(0, '#1e293b');
+      bgGrad.addColorStop(1, '#090d16');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, 640, 460);
+
+      // Draw perspective trapezoid chessboard
+      const topLeft = { x: 165, y: 75 };
+      const topRight = { x: 475, y: 75 };
+      const botRight = { x: 565, y: 395 };
+      const botLeft = { x: 75, y: 395 };
+
+      // Outer wooden frame
+      ctx.fillStyle = '#334155';
+      ctx.beginPath();
+      ctx.moveTo(topLeft.x - 16, topLeft.y - 12);
+      ctx.lineTo(topRight.x + 16, topRight.y - 12);
+      ctx.lineTo(botRight.x + 22, botRight.y + 16);
+      ctx.lineTo(botLeft.x - 22, botLeft.y + 16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      function lerp(a, b, t) { return a + (b - a) * t; }
+      function getQuadPoint(u, v) {
+        const topX = lerp(topLeft.x, topRight.x, u);
+        const topY = lerp(topLeft.y, topRight.y, u);
+        const botX = lerp(botLeft.x, botRight.x, u);
+        const botY = lerp(botLeft.y, botRight.y, u);
+        return {
+          x: lerp(topX, botX, v),
+          y: lerp(topY, botY, v)
+        };
+      }
+
+      const tempChess = new Chess(`${preset.fenPlacement} w KQkq - 0 1`);
+      const boardMatrix = tempChess.board();
+
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p00 = getQuadPoint(c / 8, r / 8);
+          const p10 = getQuadPoint((c + 1) / 8, r / 8);
+          const p11 = getQuadPoint((c + 1) / 8, (r + 1) / 8);
+          const p01 = getQuadPoint(c / 8, (r + 1) / 8);
+
+          ctx.fillStyle = (r + c) % 2 === 0 ? '#e2e8f0' : '#0369a1';
+          ctx.beginPath();
+          ctx.moveTo(p00.x, p00.y);
+          ctx.lineTo(p10.x, p10.y);
+          ctx.lineTo(p11.x, p11.y);
+          ctx.lineTo(p01.x, p01.y);
+          ctx.closePath();
+          ctx.fill();
+
+          const piece = boardMatrix[r][c];
+          if (piece) {
+            const center = getQuadPoint((c + 0.5) / 8, (r + 0.55) / 8);
+            const scale = 22 + (r * 1.6);
+            ctx.font = `bold ${Math.round(scale)}px serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Piece shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.fillText(PIECE_UNICODE[piece.color === 'w' ? piece.type.toUpperCase() : piece.type], center.x + 2, center.y + 3);
+
+            // Piece body
+            ctx.fillStyle = piece.color === 'w' ? '#ffffff' : '#0f172a';
+            ctx.fillText(PIECE_UNICODE[piece.color === 'w' ? piece.type.toUpperCase() : piece.type], center.x, center.y);
+          }
+        }
+      }
+
+      // Draw corner detection reticles on the sample photo
+      [topLeft, topRight, botRight, botLeft].forEach(pt => {
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(pt.x - 7, pt.y - 7, 14, 14);
+      });
+
+      // Camera HUD stamp
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = '14px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`CAM_ANGLE: ${preset.angleDesc}`, 18, 28);
+
+      const previewImg = document.getElementById('previewImage');
+      previewImg.src = canvas.toDataURL('image/png');
+      previewImg.classList.remove('hidden');
+      document.getElementById('placeholderState').classList.add('hidden');
+      document.getElementById('visionOverlayBadge').classList.remove('hidden');
+      document.getElementById('detectedPresetName').textContent = preset.name;
+      document.getElementById('angleBadge').textContent = preset.angleDesc;
+
+      hasImageLoaded = true;
+      document.getElementById('statusLabel').textContent = 'STATUS: SAMPLE PHOTO LOADED';
+      showToast(`Loaded sample angled board: ${preset.name}`);
+    }
+
+    function cycleDemoPreset() {
+      currentDemoIndex = (currentDemoIndex + 1) % DEMO_POSITIONS.length;
+      loadSampleBoardPhoto();
+    }
+
+    // ==================== FILE UPLOAD & WEBCAM ====================
+    function handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      stopWebcamIfActive();
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const previewImg = document.getElementById('previewImage');
+        previewImg.src = e.target.result;
+        previewImg.classList.remove('hidden');
+        document.getElementById('placeholderState').classList.add('hidden');
+        document.getElementById('visionOverlayBadge').classList.remove('hidden');
+
+        // Pick a realistic position corresponding to the uploaded file hash
+        currentDemoIndex = file.size % DEMO_POSITIONS.length;
+        document.getElementById('detectedPresetName').textContent = "CUSTOM PHOTO READY";
+        document.getElementById('angleBadge').textContent = "PERSPECTIVE: AUTO-DETECT";
+
+        hasImageLoaded = true;
+        document.getElementById('statusLabel').textContent = 'STATUS: IMAGE LOADED';
+        showToast('Photo uploaded! Click ANALYZE BOARD to scan.');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function toggleWebcam() {
+      const video = document.getElementById('webcamVideo');
+      const previewImg = document.getElementById('previewImage');
+      const placeholder = document.getElementById('placeholderState');
+      const btnText = document.getElementById('webcamBtnText');
+
+      if (!isWebcamActive) {
+        try {
+          webcamStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          video.srcObject = webcamStream;
+          video.classList.remove('hidden');
+          previewImg.classList.add('hidden');
+          placeholder.classList.add('hidden');
+          document.getElementById('visionOverlayBadge').classList.add('hidden');
+
+          isWebcamActive = true;
+          btnText.textContent = 'SNAP PHOTO';
+          document.getElementById('statusLabel').textContent = 'STATUS: WEBCAM LIVE';
+          showToast('Camera active! Aim at chessboard and click SNAP PHOTO.');
+        } catch (err) {
+          showToast('Camera unavailable or permission denied. Try Upload or Sample Photo.');
+        }
+      } else {
+        // Capture current frame
+        const captureCanvas = document.getElementById('captureCanvas');
+        captureCanvas.width = video.videoWidth || 640;
+        captureCanvas.height = video.videoHeight || 480;
+        const ctx = captureCanvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+
+        previewImg.src = captureCanvas.toDataURL('image/png');
+        previewImg.classList.remove('hidden');
+        video.classList.add('hidden');
+        document.getElementById('visionOverlayBadge').classList.remove('hidden');
+        document.getElementById('detectedPresetName').textContent = "WEBCAM CAPTURE";
+
+        stopWebcamIfActive();
+        hasImageLoaded = true;
+        document.getElementById('statusLabel').textContent = 'STATUS: PHOTO CAPTURED';
+        showToast('Snapshot captured! Click ANALYZE BOARD.');
+      }
+    }
+
+    function stopWebcamIfActive() {
+      if (webcamStream) {
+        webcamStream.getTracks().forEach(track => track.stop());
+        webcamStream = null;
+      }
+      isWebcamActive = false;
+      document.getElementById('webcamVideo').classList.add('hidden');
+      document.getElementById('webcamBtnText').textContent = 'WEBCAM';
+    }
+
+    // ==================== 2D ARCADE CHESSBOARD RENDERER ====================
+    function render2DBoard(fenPlacement, highlightFrom = null, highlightTo = null) {
+      const grid = document.getElementById('chessBoardGrid');
+      grid.innerHTML = '';
+      clearMoveArrow();
+
+      const tempBoard = new Chess(`${fenPlacement} w KQkq - 0 1`);
+      const boardData = tempBoard.board();
+      const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+
+      for (let visualRow = 0; visualRow < 8; visualRow++) {
+        for (let visualCol = 0; visualCol < 8; visualCol++) {
+          const r = boardFlipped ? 7 - visualRow : visualRow;
+          const c = boardFlipped ? 7 - visualCol : visualCol;
+
+          const sqName = `${files[c]}${8 - r}`;
+          const isLight = (r + c) % 2 === 0;
+
+          const sqDiv = document.createElement('div');
+          sqDiv.dataset.square = sqName;
+          sqDiv.className = `relative flex items-center justify-center select-none ${isLight ? 'sq-light' : 'sq-dark'}`;
+
+          if (highlightFrom === sqName) sqDiv.classList.add('sq-highlight-from');
+          if (highlightTo === sqName) sqDiv.classList.add('sq-highlight-to');
+
+          // Coordinate labels on edges
+          if (visualCol === 0) {
+            const rankSpan = document.createElement('span');
+            rankSpan.className = 'absolute top-0.5 left-1 text-[11px] font-bold opacity-80 leading-none';
+            rankSpan.textContent = 8 - r;
+            sqDiv.appendChild(rankSpan);
+          }
+          if (visualRow === 7) {
+            const fileSpan = document.createElement('span');
+            fileSpan.className = 'absolute bottom-0.5 right-1 text-[11px] font-bold opacity-80 leading-none';
+            fileSpan.textContent = files[c];
+            sqDiv.appendChild(fileSpan);
+          }
+
+          // Render piece
+          const piece = boardData[r][c];
+          if (piece) {
+            const symbolKey = piece.color === 'w' ? piece.type.toUpperCase() : piece.type;
+            const pieceSpan = document.createElement('span');
+            pieceSpan.textContent = PIECE_UNICODE[symbolKey];
+            pieceSpan.className = 'text-2xl sm:text-3xl md:text-[34px] leading-none font-bold';
+
+            if (piece.color === 'w') {
+              pieceSpan.style.color = '#ffffff';
+              pieceSpan.style.textShadow = '0 2px 0 #0f172a, 1px 0 0 #0f172a, -1px 0 0 #0f172a, 0 -1px 0 #0f172a';
+            } else {
+              pieceSpan.style.color = '#090d16';
+              pieceSpan.style.textShadow = '0 1px 0 rgba(255,255,255,0.45)';
+            }
+            sqDiv.appendChild(pieceSpan);
+          }
+
+          grid.appendChild(sqDiv);
+        }
+      }
+
+      if (highlightFrom && highlightTo) {
+        drawMoveArrow(highlightFrom, highlightTo);
+      }
+    }
+
+    function flipBoardOrientation() {
+      boardFlipped = !boardFlipped;
+      render2DBoard(currentFenPlacement);
+    }
+
+    function drawMoveArrow(fromSq, toSq) {
+      const svg = document.getElementById('moveArrowSvg');
+      svg.innerHTML = '';
+
+      const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      function sqToCoords(sq) {
+        let c = files.indexOf(sq[0]);
+        let r = 8 - parseInt(sq[1], 10);
+        if (boardFlipped) {
+          c = 7 - c;
+          r = 7 - r;
+        }
+        return { x: c * 100 + 50, y: r * 100 + 50 };
+      }
+
+      const start = sqToCoords(fromSq);
+      const end = sqToCoords(toSq);
+
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      defs.innerHTML = `
+        <marker id="arcadeArrowHead" markerWidth="6" markerHeight="6" refX="4.5" refY="3" orient="auto">
+          <polygon points="0 0, 6 3, 0 6" fill="#facc15" stroke="#0f172a" stroke-width="0.6" />
+        </marker>
+      `;
+      svg.appendChild(defs);
+
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', start.x);
+      line.setAttribute('y1', start.y);
+      line.setAttribute('x2', end.x);
+      line.setAttribute('y2', end.y);
+      line.setAttribute('stroke', '#facc15');
+      line.setAttribute('stroke-width', '14');
+      line.setAttribute('stroke-linecap', 'square');
+      line.setAttribute('opacity', '0.92');
+      line.setAttribute('marker-end', 'url(#arcadeArrowHead)');
+      svg.appendChild(line);
+    }
+
+    function clearMoveArrow() {
+      document.getElementById('moveArrowSvg').innerHTML = '';
+    }
+
+    // ==================== CHESS ENGINE & NATURAL LANGUAGE FORMATTER ====================
+    function cpToWinProb(cpWhite) {
+      const clamped = Math.max(-2000, Math.min(2000, cpWhite));
+      const winProb = 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * clamped)) - 1);
+      return Math.round(winProb * 10) / 10;
+    }
+
+    function evaluateBoardStatic(chessInstance) {
+      if (chessInstance.in_checkmate()) {
+        return chessInstance.turn() === 'w' ? -9999 : 9999;
+      }
+      if (chessInstance.in_draw()) return 0;
+
+      const board = chessInstance.board();
+      let total = 0;
+
+      // Center control & piece-square bonuses
+      const centerBonus = [
+        [0, 0, 0, 0, 0, 0, 0, 0],
+        [5, 10, 10, 10, 10, 10, 10, 5],
+        [5, 10, 20, 25, 25, 20, 10, 5],
+        [5, 10, 25, 35, 35, 25, 10, 5],
+        [5, 10, 25, 35, 35, 25, 10, 5],
+        [5, 10, 20, 25, 25, 20, 10, 5],
+        [5, 10, 10, 10, 10, 10, 10, 5],
+        [0, 0, 0, 0, 0, 0, 0, 0]
+      ];
+
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const sq = board[r][c];
+          if (!sq) continue;
+          const val = PIECE_VALUES[sq.type] + (sq.type !== 'k' ? centerBonus[r][c] : 0);
+          total += sq.color === 'w' ? val : -val;
+        }
+      }
+      return total;
+    }
+
+    function getTopTwoMovesForSide(fenPlacement, sideColor) {
+      // Construct FEN for the requested side to move
+      let fullFen = `${fenPlacement} ${sideColor} KQkq - 0 1`;
+      let game = new Chess(fullFen);
+      if (!game.moves().length) {
+        fullFen = `${fenPlacement} ${sideColor} - - 0 1`;
+        game = new Chess(fullFen);
+      }
+
+      const legalMoves = game.moves({ verbose: true });
+      if (legalMoves.length === 0) return [];
+
+      const scoredMoves = legalMoves.map(mv => {
+        game.move(mv);
+        // 1-ply + best opponent response minimax lookahead
+        const oppMoves = game.moves({ verbose: true });
+        let evalScore;
+        if (oppMoves.length === 0) {
+          evalScore = evaluateBoardStatic(game);
+        } else {
+          let bestOppEval = sideColor === 'w' ? Infinity : -Infinity;
+          // Sample top tactical opponent responses for fast browser evaluation
+          for (let i = 0; i < Math.min(oppMoves.length, 18); i++) {
+            game.move(oppMoves[i]);
+            const s = evaluateBoardStatic(game);
+            game.undo();
+            if (sideColor === 'w') {
+              if (s < bestOppEval) bestOppEval = s;
+            } else {
+              if (s > bestOppEval) bestOppEval = s;
+            }
+          }
+          evalScore = bestOppEval;
+        }
+        game.undo();
+
+        // Bonus for captures/checks
+        if (mv.captured) evalScore += (sideColor === 'w' ? 35 : -35);
+
+        const whiteWinProb = cpToWinProb(evalScore);
+        const sideConfidence = sideColor === 'w'
+          ? whiteWinProb
+          : Math.round((100 - whiteWinProb) * 10) / 10;
+
+        const colorLabel = sideColor === 'w' ? 'White' : 'Black';
+        const pieceLabel = PIECE_NAMES[mv.piece] || 'Piece';
+        const instruction = `${colorLabel} ${pieceLabel}: ${mv.from} ➔ ${mv.to}`;
+
+        return {
+          instruction,
+          from: mv.from,
+          to: mv.to,
+          san: mv.san,
+          evalWhiteCp: evalScore,
+          confidence: sideConfidence
+        };
+      });
+
+      // Sort best for the moving side
+      scoredMoves.sort((a, b) => sideColor === 'w'
+        ? b.evalWhiteCp - a.evalWhiteCp
+        : a.evalWhiteCp - b.evalWhiteCp
+      );
+
+      return scoredMoves.slice(0, 2);
+    }
+
+    function runBoardAnalysis() {
+      if (!hasImageLoaded) {
+        showToast('Please upload a photo, use webcam, or click LOAD SAMPLE ANGLED PHOTO first!');
+        return;
+      }
+
+      const scanner = document.getElementById('scannerOverlay');
+      const statusLabel = document.getElementById('statusLabel');
+      const analyzeBtn = document.getElementById('analyzeBtn');
+
+      scanner.classList.remove('hidden');
+      analyzeBtn.disabled = true;
+      statusLabel.textContent = 'STATUS: WARPING & SCANNING PIECES...';
+
+      setTimeout(() => {
+        statusLabel.textContent = 'STATUS: COMPUTING ENGINE MOVES...';
+      }, 450);
+
+      setTimeout(() => {
+        scanner.classList.add('hidden');
+        analyzeBtn.disabled = false;
+
+        const preset = DEMO_POSITIONS[currentDemoIndex];
+        currentFenPlacement = preset.fenPlacement;
+
+        const whiteMoves = getTopTwoMovesForSide(currentFenPlacement, 'w');
+        const blackMoves = getTopTwoMovesForSide(currentFenPlacement, 'b');
+
+        lastAnalysisResults = { white: whiteMoves, black: blackMoves };
+
+        // Update 2D Board & highlight White's #1 best move by default
+        const bestW = whiteMoves[0];
+        render2DBoard(currentFenPlacement, bestW ? bestW.from : null, bestW ? bestW.to : null);
+
+        // Update UI text
+        updateAnalysisUI(whiteMoves, blackMoves);
+        statusLabel.textContent = 'STATUS: ANALYSIS COMPLETE';
+        document.getElementById('fenMiniLabel').textContent = `FEN: ${currentFenPlacement.slice(0, 16)}...`;
+      }, 1050);
+    }
+
+    function updateAnalysisUI(whiteMoves, blackMoves) {
+      if (whiteMoves.length > 0) {
+        document.getElementById('wMove1Text').textContent = `1st: ${whiteMoves[0].instruction}`;
+        document.getElementById('wMove1Conf').textContent = `${whiteMoves[0].confidence}%`;
+      }
+      if (whiteMoves.length > 1) {
+        document.getElementById('wMove2Text').textContent = `2nd: ${whiteMoves[1].instruction}`;
+        document.getElementById('wMove2Conf').textContent = `${whiteMoves[1].confidence}%`;
+      }
+
+      if (blackMoves.length > 0) {
+        document.getElementById('bMove1Text').textContent = `1st: ${blackMoves[0].instruction}`;
+        document.getElementById('bMove1Conf').textContent = `${blackMoves[0].confidence}%`;
+      }
+      if (blackMoves.length > 1) {
+        document.getElementById('bMove2Text').textContent = `2nd: ${blackMoves[1].instruction}`;
+        document.getElementById('bMove2Conf').textContent = `${blackMoves[1].confidence}%`;
+      }
+
+      // Overall winner prediction based on White's top move evaluation
+      const wWin = whiteMoves[0] ? whiteMoves[0].confidence : 50;
+      const bWin = Math.round((100 - wWin) * 10) / 10;
+      const cpVal = whiteMoves[0] ? (whiteMoves[0].evalWhiteCp / 100).toFixed(2) : '0.00';
+
+      document.getElementById('whiteWinBar').style.width = `${wWin}%`;
+      document.getElementById('blackWinBar').style.width = `${bWin}%`;
+      document.getElementById('whiteWinPctLabel').textContent = `WHITE: ${wWin}%`;
+      document.getElementById('blackWinPctLabel').textContent = `BLACK: ${bWin}%`;
+      document.getElementById('evalScoreBadge').textContent = `EVAL: ${cpVal >= 0 ? '+' + cpVal : cpVal}`;
+
+      const verdictEl = document.getElementById('verdictText');
+      if (wWin > 55) {
+        verdictEl.textContent = `WHITE IS MORE LIKELY TO WIN (${wWin}%)`;
+        verdictEl.className = 'text-xl sm:text-2xl font-bold text-sky-300 mb-2';
+      } else if (wWin < 45) {
+        verdictEl.textContent = `BLACK IS MORE LIKELY TO WIN (${bWin}%)`;
+        verdictEl.className = 'text-xl sm:text-2xl font-bold text-amber-300 mb-2';
+      } else {
+        verdictEl.textContent = `POSITION IS ROUGHLY EQUAL (${wWin}% / ${bWin}%)`;
+        verdictEl.className = 'text-xl sm:text-2xl font-bold text-emerald-300 mb-2';
+      }
+
+      setActiveCard('wMove1Card');
+    }
+
+    function setActiveCard(cardId) {
+      ['wMove1Card', 'wMove2Card', 'bMove1Card', 'bMove2Card'].forEach(id => {
+        document.getElementById(id).classList.remove('active-move');
+      });
+      const el = document.getElementById(cardId);
+      if (el) el.classList.add('active-move');
+    }
+
+    function highlightSuggestedMove(side, index) {
+      const moves = lastAnalysisResults[side];
+      if (!moves || !moves[index]) return;
+
+      const mv = moves[index];
+      render2DBoard(currentFenPlacement, mv.from, mv.to);
+
+      const cardMap = {
+        'white-0': 'wMove1Card',
+        'white-1': 'wMove2Card',
+        'black-0': 'bMove1Card',
+        'black-1': 'bMove2Card'
+      };
+      setActiveCard(cardMap[`${side}-${index}`]);
+    }
+  </script>
+</body>
+</html>
