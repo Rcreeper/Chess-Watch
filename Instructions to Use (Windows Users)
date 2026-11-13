@@ -6,5 +6,5 @@ For Windows Users:-
 3. Once Command Prompt is open, exactly type, python omni_delta.py
 
 Note 
-1. If Python isn't recognized use py omni_delta.py.
+1. If Python isn't recognized use py chesswatch.py.
 2. Ensure Python is installed
